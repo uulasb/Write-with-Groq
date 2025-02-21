@@ -41,6 +41,8 @@ interface EditorStore {
   createFile: (name: string, content?: string) => void;
   saveCurrentFile: () => void;
   deleteFile: (id: string) => void;
+  
+  hasUnsavedChanges: boolean;
 }
 
 export const useEditorStore = create<EditorStore>()(
@@ -48,8 +50,11 @@ export const useEditorStore = create<EditorStore>()(
     (set, get) => ({
       content: '',
       setContent: (content) => {
-        set({ content });
-        // Don't auto-save on content change
+        const store = get();
+        set({ 
+          content,
+          hasUnsavedChanges: store.currentFile ? content !== store.currentFile.content : content.length > 0
+        });
       },
       
       selectedModel: AI_MODELS[0],
@@ -93,10 +98,14 @@ export const useEditorStore = create<EditorStore>()(
         if (newHistory.length > 100) {
           newHistory.shift();
         }
+
+        // Update hasUnsavedChanges
+        const hasUnsavedChanges = store.currentFile ? state.content !== store.currentFile.content : state.content.length > 0;
         
         return {
           history: newHistory,
-          currentHistoryIndex: newHistory.length - 1
+          currentHistoryIndex: newHistory.length - 1,
+          hasUnsavedChanges
         };
       }),
       
@@ -104,9 +113,11 @@ export const useEditorStore = create<EditorStore>()(
         if (store.currentHistoryIndex > 0) {
           const newIndex = store.currentHistoryIndex - 1;
           const previousState = store.history[newIndex];
+          const hasUnsavedChanges = store.currentFile ? previousState.content !== store.currentFile.content : previousState.content.length > 0;
           return {
             content: previousState.content,
-            currentHistoryIndex: newIndex
+            currentHistoryIndex: newIndex,
+            hasUnsavedChanges
           };
         }
         return store;
@@ -116,9 +127,11 @@ export const useEditorStore = create<EditorStore>()(
         if (store.currentHistoryIndex < store.history.length - 1) {
           const newIndex = store.currentHistoryIndex + 1;
           const nextState = store.history[newIndex];
+          const hasUnsavedChanges = store.currentFile ? nextState.content !== store.currentFile.content : nextState.content.length > 0;
           return {
             content: nextState.content,
-            currentHistoryIndex: newIndex
+            currentHistoryIndex: newIndex,
+            hasUnsavedChanges
           };
         }
         return store;
@@ -153,7 +166,8 @@ export const useEditorStore = create<EditorStore>()(
             cursorPosition: 0,
             timestamp: Date.now()
           }],
-          currentHistoryIndex: 0
+          currentHistoryIndex: 0,
+          hasUnsavedChanges: false
         });
       },
       
@@ -175,7 +189,7 @@ export const useEditorStore = create<EditorStore>()(
           fileSystem.updateFile(currentFile.id, { content });
           get().loadFiles();
           // Show save feedback
-          set({ error: 'File saved successfully!' });
+          set({ error: 'File saved successfully!', hasUnsavedChanges: false });
           setTimeout(() => set({ error: null }), 2000);
         } else {
           // Create new file if none exists
@@ -202,11 +216,14 @@ export const useEditorStore = create<EditorStore>()(
             currentFile: null, 
             content: '',
             history: [{ content: '', cursorPosition: 0, timestamp: Date.now() }],
-            currentHistoryIndex: 0
+            currentHistoryIndex: 0,
+            hasUnsavedChanges: false
           });
         }
         get().loadFiles();
-      }
+      },
+      
+      hasUnsavedChanges: false
     }),
     {
       name: 'editor-storage',
@@ -216,7 +233,8 @@ export const useEditorStore = create<EditorStore>()(
         currentFile: state.currentFile,
         content: state.content,
         history: state.history,
-        currentHistoryIndex: state.currentHistoryIndex
+        currentHistoryIndex: state.currentHistoryIndex,
+        hasUnsavedChanges: state.hasUnsavedChanges
       })
     }
   )

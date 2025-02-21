@@ -20,6 +20,7 @@ const SuggestionBox = ({ suggestions, active, onSelect, style }: {
 }) => {
   const boxRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(style);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (boxRef.current) {
@@ -48,61 +49,77 @@ const SuggestionBox = ({ suggestions, active, onSelect, style }: {
       style={position}
     >
       <div className="max-h-[300px] overflow-y-auto">
-        {suggestions.map((suggestion, i) => (
-          <motion.div
-            key={i}
-            initial={false}
-            animate={{
-              backgroundColor: i === active ? 'rgb(59 130 246 / 0.1)' : 'transparent',
-            }}
-            whileHover={{ x: 4 }}
-            className={`
-              group px-4 py-2.5 cursor-pointer flex items-center gap-3 
-              hover:bg-blue-50 dark:hover:bg-blue-900/20
-              ${i === active ? 'bg-blue-50 dark:bg-blue-900/20' : ''}
-              transition-all duration-150 ease-out
-            `}
-            onClick={() => onSelect(suggestion)}
-          >
-            <div className={`
-              flex-1 text-sm sm:text-base
-              ${i === active ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}
-            `}>
-              {suggestion}
-            </div>
-            
-            <div className={`
-              text-xs flex items-center gap-1.5
-              ${i === active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
-              transition-opacity duration-150
-            `}>
-              <motion.div 
-                initial={false}
-                animate={{ scale: i === active ? 1 : 0.9 }}
-                className="flex items-center gap-1 text-gray-400 dark:text-gray-500"
-              >
-                <kbd className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-medium">
-                  Tab
-                </kbd>
-                {i === active && (
-                  <motion.span
-                    initial={{ opacity: 0, x: -5 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="hidden sm:inline"
+        <div className="sticky top-0 bg-gray-50 dark:bg-gray-900/50 px-4 py-2 border-b border-gray-100 dark:border-gray-800">
+          <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+            <span className="flex items-center gap-1">
+              <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-medium">↑</kbd>
+              <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-medium">↓</kbd>
+              to navigate
+            </span>
+            <span>•</span>
+            <span className="flex items-center gap-1">
+              <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-medium">Tab</kbd>
+              to select
+            </span>
+            <span>•</span>
+            <span className="flex items-center gap-1">
+              <kbd className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-medium">Esc</kbd>
+              to dismiss
+            </span>
+          </div>
+        </div>
+        
+        {suggestions.map((suggestion, i) => {
+          const isActive = i === active;
+          const isHovered = i === hoveredIndex;
+          
+          return (
+            <motion.div
+              key={i}
+              initial={false}
+              animate={{
+                backgroundColor: isActive || isHovered ? 'rgb(59 130 246 / 0.1)' : 'transparent',
+                x: isActive || isHovered ? 4 : 0
+              }}
+              className={`
+                group px-4 py-2.5 cursor-pointer flex items-center gap-3 
+                hover:bg-blue-50 dark:hover:bg-blue-900/20
+                ${isActive ? 'bg-blue-50 dark:bg-blue-900/20' : ''}
+                transition-all duration-150 ease-out
+              `}
+              onClick={() => onSelect(suggestion)}
+              onMouseEnter={() => setHoveredIndex(i)}
+              onMouseLeave={() => setHoveredIndex(null)}
+            >
+              <div className="flex-1 flex items-center gap-2">
+                <div className={`
+                  flex-1 text-sm sm:text-base
+                  ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}
+                `}>
+                  {suggestion}
+                </div>
+                
+                <motion.div 
+                  animate={{ 
+                    opacity: isActive || isHovered ? 1 : 0,
+                    scale: isActive || isHovered ? 1 : 0.9 
+                  }}
+                  className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500"
+                >
+                  <kbd className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-medium">
+                    Tab
+                  </kbd>
+                  <motion.div
+                    animate={{ rotate: isActive || isHovered ? 90 : 0 }}
+                    className="text-blue-500 dark:text-blue-400"
                   >
-                    to complete
-                  </motion.span>
-                )}
-              </motion.div>
-              <motion.div
-                animate={{ rotate: i === active ? 90 : 0 }}
-                className="text-blue-500 dark:text-blue-400"
-              >
-                →
-              </motion.div>
-            </div>
-          </motion.div>
-        ))}
+                    →
+                  </motion.div>
+                </motion.div>
+              </div>
+            </motion.div>
+          );
+        })}
       </div>
     </motion.div>
   );
@@ -166,10 +183,18 @@ export function Editor() {
     _.debounce(async (text: string, pos: number) => {
       try {
         const textUpToCursor = text.slice(0, pos);
-        // Only show suggestions after space, period, or when ending a word
+        // Show suggestions after typing 2 characters or when explicitly triggered
         const lastWord = textUpToCursor.split(/[\s.,!?]+/).pop() || '';
-        if (lastWord.length >= 2) { // Only show after typing at least 2 characters
+        
+        // Don't show suggestions while typing numbers
+        if (/^\d+$/.test(lastWord)) {
+          setShowSuggestions(false);
+          return;
+        }
+
+        if (lastWord.length >= 2) {
           const sugg = await getSuggestions(textUpToCursor, selectedModel);
+          
           // Filter out suggestions that don't add new content
           const filteredSugg = sugg
             .map(s => s.trim())
@@ -181,6 +206,30 @@ export function Editor() {
             setSuggestions(filteredSugg);
             setShowSuggestions(true);
             setActiveSuggestionIndex(0);
+            
+            // Update cursor coordinates for the suggestion box
+            const textarea = editorRef.current;
+            if (textarea) {
+              const { selectionStart } = textarea;
+              const textBeforeCursor = textarea.value.substring(0, selectionStart);
+              const lines = textBeforeCursor.split('\n');
+              const currentLineNumber = lines.length - 1;
+              const currentLineStart = textBeforeCursor.lastIndexOf('\n') + 1;
+              
+              const computedStyle = window.getComputedStyle(textarea);
+              const lineHeight = parseInt(computedStyle.lineHeight);
+              const paddingTop = parseInt(computedStyle.paddingTop);
+              const paddingLeft = parseInt(computedStyle.paddingLeft);
+              const fontSize = parseInt(computedStyle.fontSize);
+              
+              const currentLine = textBeforeCursor.slice(currentLineStart);
+              const textWidth = getTextWidth(currentLine, `${fontSize}px ${computedStyle.fontFamily}`);
+              
+              const top = textarea.offsetTop + paddingTop + (currentLineNumber * lineHeight) + lineHeight;
+              const left = textarea.offsetLeft + paddingLeft + textWidth;
+              
+              setCursorCoords({ top, left });
+            }
           } else {
             setShowSuggestions(false);
           }
@@ -191,9 +240,20 @@ export function Editor() {
         console.error('Failed to get suggestions:', error);
         setShowSuggestions(false);
       }
-    }, 300),
+    }, 150), // Reduced debounce time for more responsive feel
     [selectedModel]
   );
+
+  // Helper function to measure text width
+  const getTextWidth = (text: string, font: string) => {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    if (context) {
+      context.font = font;
+      return context.measureText(text).width;
+    }
+    return 0;
+  };
 
   const insertSuggestion = useCallback((suggestion: string) => {
     const textarea = document.querySelector('textarea');
@@ -235,17 +295,32 @@ export function Editor() {
     });
     
     // Update cursor position for suggestions
-    setCursorPos(e.target.selectionStart);
+    const { selectionStart } = e.target;
+    setCursorPos(selectionStart);
     
-    // Hide suggestions when deleting text
-    if (newContent.length < content.length) {
-      setShowSuggestions(false);
-      return;
-    }
+    // Update cursor coordinates
+    const textBeforeCursor = e.target.value.substring(0, selectionStart);
+    const lines = textBeforeCursor.split('\n');
+    const currentLineNumber = lines.length - 1;
+    const currentLineStart = textBeforeCursor.lastIndexOf('\n') + 1;
+    
+    const computedStyle = window.getComputedStyle(e.target);
+    const lineHeight = parseInt(computedStyle.lineHeight);
+    const paddingTop = parseInt(computedStyle.paddingTop);
+    const paddingLeft = parseInt(computedStyle.paddingLeft);
+    const fontSize = parseInt(computedStyle.fontSize);
+    
+    const currentLine = textBeforeCursor.slice(currentLineStart);
+    const textWidth = getTextWidth(currentLine, `${fontSize}px ${computedStyle.fontFamily}`);
+    
+    const top = e.target.offsetTop + paddingTop + (currentLineNumber * lineHeight) + lineHeight;
+    const left = e.target.offsetLeft + paddingLeft + textWidth;
+    
+    setCursorCoords({ top, left });
     
     // Get suggestions as user types
-    debouncedGetSuggestions(newContent, e.target.selectionStart);
-  }, [setContent, pushHistory, content, debouncedGetSuggestions]);
+    debouncedGetSuggestions(newContent, selectionStart);
+  }, [setContent, pushHistory, debouncedGetSuggestions]);
 
   // Handle save
   const handleSave = useCallback(() => {
@@ -273,7 +348,7 @@ export function Editor() {
   }, [currentFile, content, createFile, saveCurrentFile, setError]);
 
   // Handle keyboard shortcuts
-  const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback(async (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Save
     if ((e.metaKey || e.ctrlKey) && e.key === 's') {
       e.preventDefault();
@@ -296,47 +371,62 @@ export function Editor() {
       return;
     }
 
-    // Tab or Ctrl/Cmd + Space to trigger suggestions
-    if (e.key === 'Tab' || ((e.ctrlKey || e.metaKey) && e.key === ' ')) {
+    // Suggestions navigation
+    if (showSuggestions && suggestions.length > 0) {
+      switch (e.key) {
+        case 'ArrowUp':
+          e.preventDefault();
+          setActiveSuggestionIndex(i => (i > 0 ? i - 1 : suggestions.length - 1));
+          return;
+        case 'ArrowDown':
+          e.preventDefault();
+          setActiveSuggestionIndex(i => (i < suggestions.length - 1 ? i + 1 : 0));
+          return;
+        case 'Tab':
+        case 'Enter':
+          e.preventDefault();
+          insertSuggestion(suggestions[activeSuggestionIndex]);
+          setShowSuggestions(false);
+          return;
+        case 'Escape':
+          e.preventDefault();
+          setShowSuggestions(false);
+          return;
+      }
+    }
+
+    // Explicitly trigger suggestions with Ctrl/Cmd + Space
+    if ((e.ctrlKey || e.metaKey) && e.key === ' ') {
       e.preventDefault();
+      const textarea = e.target as HTMLTextAreaElement;
+      debouncedGetSuggestions(textarea.value, textarea.selectionStart);
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      
       if (showSuggestions) {
         insertSuggestion(suggestions[activeSuggestionIndex]);
-        setShowSuggestions(false);
       } else {
-        const textUpToCursor = content.slice(0, cursorPos);
+        // Get text up to cursor
+        const textarea = e.currentTarget;
+        const pos = textarea.selectionStart;
+        const textUpToCursor = textarea.value.slice(0, pos);
+        
         try {
           const sugg = await getSuggestions(textUpToCursor, selectedModel);
           if (sugg.length > 0) {
             setSuggestions(sugg);
             setShowSuggestions(true);
             setActiveSuggestionIndex(0);
+            updateCursorCoords(textarea);
           }
         } catch (error) {
           console.error('Failed to get suggestions:', error);
-          setError('Failed to get suggestions. Please try again.');
-          setTimeout(() => setError(null), 2000);
         }
       }
       return;
-    }
-
-    // Handle suggestions
-    if (showSuggestions) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setActiveSuggestionIndex(i => 
-          i < suggestions.length - 1 ? i + 1 : i
-        );
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setActiveSuggestionIndex(i => i > 0 ? i - 1 : i);
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        insertSuggestion(suggestions[activeSuggestionIndex]);
-        setShowSuggestions(false);
-      } else if (e.key === 'Escape') {
-        setShowSuggestions(false);
-      }
     }
   }, [
     showSuggestions, 
@@ -355,37 +445,34 @@ export function Editor() {
     setShowRedoTooltip
   ]);
 
-  const updateCursorCoords = useCallback(() => {
-    if (editorRef.current) {
-      const textarea = editorRef.current;
-      const { selectionStart } = textarea;
-      
-      // Create a temporary div to measure text
-      const div = document.createElement('div');
-      div.style.cssText = window.getComputedStyle(textarea).cssText;
-      div.style.height = 'auto';
-      div.style.position = 'absolute';
-      div.style.visibility = 'hidden';
-      div.style.whiteSpace = 'pre-wrap';
-      
-      // Get text before cursor
-      const textBeforeCursor = textarea.value.substring(0, selectionStart);
-      div.textContent = textBeforeCursor;
-      
-      document.body.appendChild(div);
-      const coords = {
-        top: div.offsetHeight + textarea.offsetTop + 8, // 8px padding
-        left: div.offsetWidth % textarea.offsetWidth + textarea.offsetLeft + 8
-      };
-      document.body.removeChild(div);
-      
-      setCursorCoords(coords);
-    }
+  // Helper function to update cursor coordinates
+  const updateCursorCoords = useCallback((textarea: HTMLTextAreaElement) => {
+    const { selectionStart } = textarea;
+    const textBeforeCursor = textarea.value.substring(0, selectionStart);
+    const lines = textBeforeCursor.split('\n');
+    const currentLineNumber = lines.length - 1;
+    const currentLineStart = textBeforeCursor.lastIndexOf('\n') + 1;
+    
+    const computedStyle = window.getComputedStyle(textarea);
+    const lineHeight = parseInt(computedStyle.lineHeight);
+    const paddingTop = parseInt(computedStyle.paddingTop);
+    const paddingLeft = parseInt(computedStyle.paddingLeft);
+    const fontSize = parseInt(computedStyle.fontSize);
+    const scrollTop = textarea.scrollTop;
+    
+    const currentLine = textBeforeCursor.slice(currentLineStart);
+    const textWidth = getTextWidth(currentLine, `${fontSize}px ${computedStyle.fontFamily}`);
+    
+    // Calculate position considering scroll
+    const top = textarea.offsetTop + paddingTop + (currentLineNumber * lineHeight) - scrollTop;
+    const left = textarea.offsetLeft + paddingLeft + Math.min(textWidth, textarea.clientWidth - 400);
+    
+    setCursorCoords({ top, left });
   }, []);
 
   // Update cursor coords on content change and selection
   useEffect(() => {
-    updateCursorCoords();
+    updateCursorCoords(editorRef.current as HTMLTextAreaElement);
   }, [cursorPos, content, updateCursorCoords]);
 
   // Restore cursor position after undo/redo
@@ -446,81 +533,13 @@ export function Editor() {
 
   return (
     <div className="relative w-full h-full flex flex-col">
-      <div className="absolute top-2 right-2 flex gap-2 z-10">
-        {currentFile && (
-          <>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="p-1.5 bg-gray-500 text-white rounded-md text-sm flex items-center gap-1 hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={() => {
-                undo();
-                setShowUndoTooltip(true);
-                setTimeout(() => setShowUndoTooltip(false), 1000);
-              }}
-              disabled={historyIndex === 0}
-              title="⌘/Ctrl + Z"
-            >
-              <Undo size={16} />
-              {showUndoTooltip && (
-                <motion.span
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="absolute top-full mt-1 bg-black text-white px-2 py-1 rounded text-xs"
-                >
-                  Undone!
-                </motion.span>
-              )}
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="p-1.5 bg-gray-500 text-white rounded-md text-sm flex items-center gap-1 hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={() => {
-                redo();
-                setShowRedoTooltip(true);
-                setTimeout(() => setShowRedoTooltip(false), 1000);
-              }}
-              disabled={historyIndex === historyLength - 1}
-              title="⌘/Ctrl + Shift + Z"
-            >
-              <Redo size={16} />
-              {showRedoTooltip && (
-                <motion.span
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="absolute top-full mt-1 bg-black text-white px-2 py-1 rounded text-xs"
-                >
-                  Redone!
-                </motion.span>
-              )}
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="p-1.5 bg-red-500 text-white rounded-md text-sm flex items-center gap-1 hover:bg-red-600 transition-colors"
-              onClick={() => {
-                if (confirm('Are you sure you want to revert all changes?')) {
-                  while (historyIndex > 0) {
-                    undo();
-                  }
-                }
-              }}
-              title="Revert to original"
-            >
-              <RotateCcw size={16} />
-            </motion.button>
-          </>
-        )}
-      </div>
       <div className="relative flex-1">
         <textarea
           ref={editorRef}
           value={content}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onScroll={() => editorRef.current && updateCursorCoords(editorRef.current)}
           className="flex-1 w-full h-full p-4 resize-none outline-none bg-transparent text-gray-800 dark:text-gray-200"
           placeholder="Start writing..."
           spellCheck="false"
@@ -535,10 +554,15 @@ export function Editor() {
               active={activeSuggestionIndex}
               onSelect={insertSuggestion}
               style={{
-                top: cursorCoords.top + 24,
-                left: cursorCoords.left,
-                maxWidth: Math.min(400, viewportDimensions.width - 32),
-                minWidth: Math.min(200, viewportDimensions.width - 32)
+                position: 'absolute',
+                top: `${cursorCoords.top + 24}px`,
+                left: `${cursorCoords.left}px`,
+                maxWidth: '400px',
+                minWidth: '200px',
+                maxHeight: '200px',
+                overflowY: 'auto',
+                zIndex: 50,
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
               }}
             />
           )}
@@ -556,23 +580,6 @@ export function Editor() {
             onClick={() => {/* Implement comment feature */}}
           >
             <MessageSquarePlus size={20} />
-          </button>
-          <button
-            className={`p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 ${hasUnsavedChanges ? 'text-blue-500' : ''}`}
-            onClick={handleSave}
-            title="⌘/Ctrl + S"
-          >
-            <Save size={20} />
-            {showSaveTooltip && (
-              <motion.span
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="absolute top-full mt-1 bg-black text-white px-2 py-1 rounded text-xs whitespace-nowrap"
-              >
-                Saved!
-              </motion.span>
-            )}
           </button>
           <button
             className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"

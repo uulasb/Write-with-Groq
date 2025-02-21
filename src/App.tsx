@@ -4,21 +4,45 @@ import { Sidebar } from './components/Sidebar';
 import { ThemeProvider } from './components/ThemeProvider';
 import { ThemeToggle } from './components/ThemeToggle';
 import { ModelSelector } from './components/ModelSelector';
-import { Save, Undo, Redo } from 'lucide-react';
+import { Save, Undo, Redo, Github } from 'lucide-react';
 import { useEditorStore } from './store';
 import waiLogo from '../Wai.svg';
+import { motion } from 'framer-motion';
 
 function App() {
   const [isLeftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [isRightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [showSaveTooltip, setShowSaveTooltip] = useState(false);
+  const [showUndoTooltip, setShowUndoTooltip] = useState(false);
+  const [showRedoTooltip, setShowRedoTooltip] = useState(false);
+  
   const { 
     currentFile, 
     saveCurrentFile, 
     undo, 
     redo,
     canUndo,
-    canRedo
+    canRedo,
+    hasUnsavedChanges
   } = useEditorStore();
+
+  const handleSave = () => {
+    saveCurrentFile();
+    setShowSaveTooltip(true);
+    setTimeout(() => setShowSaveTooltip(false), 1000);
+  };
+
+  const handleUndo = () => {
+    undo();
+    setShowUndoTooltip(true);
+    setTimeout(() => setShowUndoTooltip(false), 1000);
+  };
+
+  const handleRedo = () => {
+    redo();
+    setShowRedoTooltip(true);
+    setTimeout(() => setShowRedoTooltip(false), 1000);
+  };
 
   return (
     <ThemeProvider>
@@ -38,36 +62,92 @@ function App() {
           <div className="flex items-center space-x-1 sm:space-x-2">
             {/* Editor Controls */}
             <div className="flex items-center mr-2 sm:mr-4 space-x-0.5 sm:space-x-1">
-              <button
-                onClick={undo}
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleUndo}
                 disabled={!canUndo()}
-                className={`p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400
-                  ${!canUndo() && 'opacity-50 cursor-not-allowed'}`}
+                className={`p-1.5 sm:p-2 rounded-lg relative ${
+                  canUndo() 
+                    ? 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300' 
+                    : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400 dark:text-gray-600 cursor-not-allowed'
+                }`}
                 title="Undo (⌘Z)"
               >
                 <Undo size={16} className="sm:w-[18px] sm:h-[18px]" />
-              </button>
-              <button
-                onClick={redo}
+                {showUndoTooltip && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap"
+                  >
+                    Changes undone
+                  </motion.div>
+                )}
+              </motion.button>
+              
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleRedo}
                 disabled={!canRedo()}
-                className={`p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400
-                  ${!canRedo() && 'opacity-50 cursor-not-allowed'}`}
+                className={`p-1.5 sm:p-2 rounded-lg relative ${
+                  canRedo() 
+                    ? 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300' 
+                    : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400 dark:text-gray-600 cursor-not-allowed'
+                }`}
                 title="Redo (⌘⇧Z)"
               >
                 <Redo size={16} className="sm:w-[18px] sm:h-[18px]" />
-              </button>
-              <button
-                onClick={saveCurrentFile}
-                disabled={!currentFile}
-                className={`p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 
-                  ${!currentFile && 'opacity-50 cursor-not-allowed'}`}
+                {showRedoTooltip && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap"
+                  >
+                    Changes redone
+                  </motion.div>
+                )}
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleSave}
+                className={`p-1.5 sm:p-2 rounded-lg relative flex items-center gap-1.5 ${
+                  hasUnsavedChanges 
+                    ? 'bg-blue-500 hover:bg-blue-600 text-white' 
+                    : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                } transition-colors`}
                 title="Save (⌘S)"
               >
                 <Save size={16} className="sm:w-[18px] sm:h-[18px]" />
-              </button>
+                {hasUnsavedChanges ? (
+                  <span className="text-xs font-medium">Unsaved</span>
+                ) : showSaveTooltip && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap"
+                  >
+                    Saved successfully!
+                  </motion.div>
+                )}
+              </motion.button>
             </div>
 
-            <div className="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-1 sm:mx-2" />
+            <a
+              href="https://github.com/uulasb"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
+              title="Visit my GitHub"
+            >
+              <Github size={16} className="sm:w-[18px] sm:h-[18px]" />
+            </a>
             <ThemeToggle />
           </div>
         </header>
