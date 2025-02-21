@@ -3,7 +3,7 @@
 A modern, AI-powered writing assistant inspired by "Write with Transformer". Built with React and Groq's LLM API, it offers real-time AI suggestions in a clean, minimal interface.
 
 <div align="center">
-  <img src="Wwq.png" alt="Write with Groq Screenshot" width="800"/>
+  <img src="/Wwq.png" alt="Write with Groq Screenshot" width="800"/>
 </div>
 
 ![Demo Screenshot](Wai.svg)
