@@ -24,11 +24,14 @@ interface EditorStore {
   // History management
   history: EditorState[];
   currentHistoryIndex: number;
+  historyIndex: number; // Alias for currentHistoryIndex
+  historyLength: number; // Total history length
   pushHistory: (state: EditorState) => void;
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
+  revertAll: () => void;
   
   // File management
   currentFile: FileMetadata | null;
@@ -66,6 +69,14 @@ export const useEditorStore = create<EditorStore>()(
       // History management
       history: [{ content: '', cursorPosition: 0, timestamp: Date.now() }],
       currentHistoryIndex: 0,
+      
+      get historyIndex() {
+        return get().currentHistoryIndex;
+      },
+      
+      get historyLength() {
+        return get().history.length;
+      },
       
       pushHistory: (state) => set(store => {
         // Only push if content changed
@@ -123,6 +134,14 @@ export const useEditorStore = create<EditorStore>()(
         return store.currentHistoryIndex < store.history.length - 1;
       },
       
+      revertAll: () => set(store => {
+        const firstState = store.history[0];
+        return {
+          content: firstState.content,
+          currentHistoryIndex: 0
+        };
+      }),
+      
       // File management
       currentFile: null,
       setCurrentFile: (file) => {
@@ -157,6 +176,20 @@ export const useEditorStore = create<EditorStore>()(
           get().loadFiles();
           // Show save feedback
           set({ error: 'File saved successfully!' });
+          setTimeout(() => set({ error: null }), 2000);
+        } else {
+          // Create new file if none exists
+          const timestamp = new Date().toLocaleString('en-US', {
+            month: 'short',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+          }).replace(',', '');
+          const newFileName = `Document ${timestamp}`;
+          const newFile = fileSystem.createFile(newFileName, content);
+          set({ currentFile: newFile });
+          get().loadFiles();
+          set({ error: 'New file created and saved!' });
           setTimeout(() => set({ error: null }), 2000);
         }
       },

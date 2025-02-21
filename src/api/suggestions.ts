@@ -5,22 +5,19 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 export async function getSuggestions(prompt: string, model?: AIModel): Promise<string[]> {
   try {
-    const defaultModel = {
-      id: 'llama3-70b',
-      apiId: 'llama3-70b-8192',
-      type: 'versatile'
-    };
+    if (!model) {
+      throw new Error('No AI model selected');
+    }
 
-    const activeModel = model || defaultModel;
-    const apiKey = activeModel.apiKey || import.meta.env.VITE_GROQ_API_KEY;
-    const endpoint = activeModel.endpoint || GROQ_API_URL;
+    const apiKey = model.apiKey || import.meta.env.VITE_GROQ_API_KEY;
+    const endpoint = model.endpoint || GROQ_API_URL;
 
     if (!apiKey) throw new Error('API key is not configured');
 
     const response = await axios.post(
       endpoint,
       {
-        model: activeModel.apiId,
+        model: model.apiId,
         messages: [
           {
             role: "system",

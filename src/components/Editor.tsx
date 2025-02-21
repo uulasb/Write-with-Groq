@@ -1,9 +1,134 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageSquarePlus, Wand2 } from 'lucide-react';
+import { 
+  Save, 
+  Undo, 
+  Redo, 
+  RotateCcw,
+  MessageSquarePlus, 
+  Wand2 
+} from 'lucide-react';
 import { useEditorStore } from '../store';
 import { generateCompletion, getSuggestions } from '../api';
 import _ from 'lodash';
+
+const SuggestionBox = ({ suggestions, active, onSelect, style }: {
+  suggestions: string[],
+  active: number,
+  onSelect: (suggestion: string) => void,
+  style: React.CSSProperties
+}) => {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState(style);
+
+  useEffect(() => {
+    if (boxRef.current) {
+      const box = boxRef.current.getBoundingClientRect();
+      const viewport = {
+        width: window.innerWidth,
+        height: window.innerHeight
+      };
+      const newPosition = calculatePosition(
+        { top: style.top as number, left: style.left as number },
+        { width: box.width, height: box.height },
+        viewport
+      );
+      setPosition({ ...style, ...newPosition });
+    }
+  }, [style, suggestions]);
+
+  return (
+    <motion.div
+      ref={boxRef}
+      initial={{ opacity: 0, y: -10, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -10, scale: 0.95 }}
+      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+      className="fixed z-50 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden backdrop-blur-sm bg-opacity-95 dark:bg-opacity-95"
+      style={position}
+    >
+      <div className="max-h-[300px] overflow-y-auto">
+        {suggestions.map((suggestion, i) => (
+          <motion.div
+            key={i}
+            initial={false}
+            animate={{
+              backgroundColor: i === active ? 'rgb(59 130 246 / 0.1)' : 'transparent',
+            }}
+            whileHover={{ x: 4 }}
+            className={`
+              group px-4 py-2.5 cursor-pointer flex items-center gap-3 
+              hover:bg-blue-50 dark:hover:bg-blue-900/20
+              ${i === active ? 'bg-blue-50 dark:bg-blue-900/20' : ''}
+              transition-all duration-150 ease-out
+            `}
+            onClick={() => onSelect(suggestion)}
+          >
+            <div className={`
+              flex-1 text-sm sm:text-base
+              ${i === active ? 'text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}
+            `}>
+              {suggestion}
+            </div>
+            
+            <div className={`
+              text-xs flex items-center gap-1.5
+              ${i === active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
+              transition-opacity duration-150
+            `}>
+              <motion.div 
+                initial={false}
+                animate={{ scale: i === active ? 1 : 0.9 }}
+                className="flex items-center gap-1 text-gray-400 dark:text-gray-500"
+              >
+                <kbd className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 font-medium">
+                  Tab
+                </kbd>
+                {i === active && (
+                  <motion.span
+                    initial={{ opacity: 0, x: -5 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="hidden sm:inline"
+                  >
+                    to complete
+                  </motion.span>
+                )}
+              </motion.div>
+              <motion.div
+                animate={{ rotate: i === active ? 90 : 0 }}
+                className="text-blue-500 dark:text-blue-400"
+              >
+                →
+              </motion.div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </motion.div>
+  );
+};
+
+const calculatePosition = (
+  cursorCoords: { top: number; left: number },
+  boxDimensions: { width: number; height: number },
+  viewportDimensions: { width: number; height: number }
+) => {
+  let { top, left } = cursorCoords;
+  const padding = 8;
+
+  // Check if box would overflow right edge
+  if (left + boxDimensions.width > viewportDimensions.width - padding) {
+    left = Math.max(padding, viewportDimensions.width - boxDimensions.width - padding);
+  }
+
+  // Check if box would overflow bottom edge
+  if (top + boxDimensions.height > viewportDimensions.height - padding) {
+    // Show above cursor instead
+    top = top - boxDimensions.height - 10;
+  }
+
+  return { top, left };
+};
 
 export function Editor() {
   const {
@@ -18,7 +143,10 @@ export function Editor() {
     undo,
     redo,
     saveCurrentFile,
-    currentFile
+    createFile,
+    currentFile,
+    historyIndex,
+    historyLength
   } = useEditorStore();
 
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -26,6 +154,11 @@ export function Editor() {
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
   const [cursorPos, setCursorPos] = useState(0);
   const [cursorCoords, setCursorCoords] = useState({ top: 0, left: 0 });
+  const [showSaveTooltip, setShowSaveTooltip] = useState(false);
+  const [showUndoTooltip, setShowUndoTooltip] = useState(false);
+  const [showRedoTooltip, setShowRedoTooltip] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [viewportDimensions, setViewportDimensions] = useState({ width: 0, height: 0 });
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
   // Debounced function to fetch suggestions
@@ -82,17 +215,69 @@ export function Editor() {
     }, 0);
   }, [content, cursorPos]);
 
+  // Track unsaved changes
+  useEffect(() => {
+    if (currentFile) {
+      setHasUnsavedChanges(content !== currentFile.content);
+    }
+  }, [content, currentFile]);
+
+  // Handle content changes
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newContent = e.target.value;
+    setContent(newContent);
+    
+    // Push to history
+    pushHistory({
+      content: newContent,
+      cursorPosition: e.target.selectionStart,
+      timestamp: Date.now()
+    });
+    
+    // Update cursor position for suggestions
+    setCursorPos(e.target.selectionStart);
+    
+    // Hide suggestions when deleting text
+    if (newContent.length < content.length) {
+      setShowSuggestions(false);
+      return;
+    }
+    
+    // Get suggestions as user types
+    debouncedGetSuggestions(newContent, e.target.selectionStart);
+  }, [setContent, pushHistory, content, debouncedGetSuggestions]);
+
+  // Handle save
+  const handleSave = useCallback(() => {
+    try {
+      if (!currentFile) {
+        // Create a new document with current timestamp
+        const timestamp = new Date().toLocaleString('en-US', {
+          month: 'short',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        }).replace(',', '');
+        const newFileName = `Document ${timestamp}`;
+        createFile(newFileName, content);
+      } else {
+        saveCurrentFile();
+      }
+      setHasUnsavedChanges(false);
+      setShowSaveTooltip(true);
+      setTimeout(() => setShowSaveTooltip(false), 1000);
+    } catch (err) {
+      setError('Failed to save file');
+      setTimeout(() => setError(null), 2000);
+    }
+  }, [currentFile, content, createFile, saveCurrentFile, setError]);
+
   // Handle keyboard shortcuts
   const handleKeyDown = useCallback(async (e: React.KeyboardEvent) => {
     // Save
     if ((e.metaKey || e.ctrlKey) && e.key === 's') {
       e.preventDefault();
-      if (currentFile) {
-        saveCurrentFile();
-      } else {
-        setError('Create or select a file first');
-        setTimeout(() => setError(null), 2000);
-      }
+      handleSave();
       return;
     }
 
@@ -101,8 +286,12 @@ export function Editor() {
       e.preventDefault();
       if (e.shiftKey) {
         redo();
+        setShowRedoTooltip(true);
+        setTimeout(() => setShowRedoTooltip(false), 1000);
       } else {
         undo();
+        setShowUndoTooltip(true);
+        setTimeout(() => setShowUndoTooltip(false), 1000);
       }
       return;
     }
@@ -117,11 +306,15 @@ export function Editor() {
         const textUpToCursor = content.slice(0, cursorPos);
         try {
           const sugg = await getSuggestions(textUpToCursor, selectedModel);
-          setSuggestions(sugg);
-          setShowSuggestions(true);
-          setActiveSuggestionIndex(0);
+          if (sugg.length > 0) {
+            setSuggestions(sugg);
+            setShowSuggestions(true);
+            setActiveSuggestionIndex(0);
+          }
         } catch (error) {
           console.error('Failed to get suggestions:', error);
+          setError('Failed to get suggestions. Please try again.');
+          setTimeout(() => setError(null), 2000);
         }
       }
       return;
@@ -153,11 +346,13 @@ export function Editor() {
     cursorPos, 
     undo, 
     redo, 
-    saveCurrentFile, 
-    currentFile,
+    handleSave, 
     setError,
     insertSuggestion,
-    selectedModel
+    selectedModel,
+    setShowSaveTooltip,
+    setShowUndoTooltip,
+    setShowRedoTooltip
   ]);
 
   const updateCursorCoords = useCallback(() => {
@@ -192,32 +387,6 @@ export function Editor() {
   useEffect(() => {
     updateCursorCoords();
   }, [cursorPos, content, updateCursorCoords]);
-
-  // Handle content changes
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newContent = e.target.value;
-    setContent(newContent);
-    
-    // Save cursor position
-    const cursorPos = e.target.selectionStart;
-    setCursorPos(cursorPos);
-    
-    // Push to history
-    pushHistory({
-      content: newContent,
-      cursorPosition: cursorPos,
-      timestamp: Date.now()
-    });
-    
-    // Hide suggestions when deleting text
-    if (newContent.length < content.length) {
-      setShowSuggestions(false);
-      return;
-    }
-    
-    // Get suggestions as user types
-    debouncedGetSuggestions(newContent, cursorPos);
-  }, [setContent, pushHistory, content, debouncedGetSuggestions]);
 
   // Restore cursor position after undo/redo
   useEffect(() => {
@@ -262,129 +431,166 @@ export function Editor() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    const updateDimensions = () => {
+      setViewportDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight
+      });
+    };
+    
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, []);
+
   return (
-    <div className="flex-1 flex flex-col relative">
-      <textarea
-        ref={editorRef}
-        value={content}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onSelect={(e) => setCursorPos((e.target as HTMLTextAreaElement).selectionStart)}
-        className="w-full h-full p-8 resize-none outline-none bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
-        placeholder="Start typing to see suggestions..."
-        style={{ fontSize: '16px', lineHeight: '1.6' }}
-      />
-
-      <AnimatePresence>
-        {showSuggestions && suggestions.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            style={{
-              position: 'absolute',
-              top: `${cursorCoords.top}px`,
-              left: `${cursorCoords.left}px`,
-              maxWidth: 'calc(100% - 4rem)'
-            }}
-            className="flex flex-col space-y-1.5 z-10"
+    <div className="relative w-full h-full flex flex-col">
+      <div className="absolute top-2 right-2 flex gap-2 z-10">
+        {currentFile && (
+          <>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="p-1.5 bg-gray-500 text-white rounded-md text-sm flex items-center gap-1 hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => {
+                undo();
+                setShowUndoTooltip(true);
+                setTimeout(() => setShowUndoTooltip(false), 1000);
+              }}
+              disabled={historyIndex === 0}
+              title="⌘/Ctrl + Z"
+            >
+              <Undo size={16} />
+              {showUndoTooltip && (
+                <motion.span
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute top-full mt-1 bg-black text-white px-2 py-1 rounded text-xs"
+                >
+                  Undone!
+                </motion.span>
+              )}
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="p-1.5 bg-gray-500 text-white rounded-md text-sm flex items-center gap-1 hover:bg-gray-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => {
+                redo();
+                setShowRedoTooltip(true);
+                setTimeout(() => setShowRedoTooltip(false), 1000);
+              }}
+              disabled={historyIndex === historyLength - 1}
+              title="⌘/Ctrl + Shift + Z"
+            >
+              <Redo size={16} />
+              {showRedoTooltip && (
+                <motion.span
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="absolute top-full mt-1 bg-black text-white px-2 py-1 rounded text-xs"
+                >
+                  Redone!
+                </motion.span>
+              )}
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="p-1.5 bg-red-500 text-white rounded-md text-sm flex items-center gap-1 hover:bg-red-600 transition-colors"
+              onClick={() => {
+                if (confirm('Are you sure you want to revert all changes?')) {
+                  while (historyIndex > 0) {
+                    undo();
+                  }
+                }
+              }}
+              title="Revert to original"
+            >
+              <RotateCcw size={16} />
+            </motion.button>
+          </>
+        )}
+      </div>
+      <div className="relative flex-1">
+        <textarea
+          ref={editorRef}
+          value={content}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          className="flex-1 w-full h-full p-4 resize-none outline-none bg-transparent text-gray-800 dark:text-gray-200"
+          placeholder="Start writing..."
+          spellCheck="false"
+          autoComplete="off"
+          autoCapitalize="off"
+        />
+        
+        <AnimatePresence>
+          {showSuggestions && suggestions.length > 0 && (
+            <SuggestionBox
+              suggestions={suggestions}
+              active={activeSuggestionIndex}
+              onSelect={insertSuggestion}
+              style={{
+                top: cursorCoords.top + 24,
+                left: cursorCoords.left,
+                maxWidth: Math.min(400, viewportDimensions.width - 32),
+                minWidth: Math.min(200, viewportDimensions.width - 32)
+              }}
+            />
+          )}
+        </AnimatePresence>
+      </div>
+      {content.trim().length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex items-center space-x-2 px-4 py-2 rounded-lg shadow-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+        >
+          <button
+            className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+            onClick={() => {/* Implement comment feature */}}
           >
-            <div className="h-4 w-full relative overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-b from-transparent to-gray-50 dark:to-gray-900/50" />
-            </div>
-            {suggestions.map((sugg, index) => (
-              <motion.button
-                key={index}
-                initial={{ x: -20, opacity: 0 }}
-                animate={{ 
-                  x: 0, 
-                  opacity: 1,
-                  scale: index === activeSuggestionIndex ? 1.02 : 1,
-                }}
-                transition={{ 
-                  delay: index * 0.05,
-                  duration: 0.2,
-                  scale: { duration: 0.1 }
-                }}
-                onClick={() => {
-                  insertSuggestion(sugg);
-                  setShowSuggestions(false);
-                }}
-                className={`
-                  text-left px-4 py-2.5 text-sm 
-                  bg-white/95 dark:bg-gray-800/95 
-                  border border-gray-200 dark:border-gray-700 
-                  rounded-lg
-                  hover:bg-blue-50 dark:hover:bg-blue-900 
-                  transition-all duration-200
-                  shadow-sm hover:shadow-md
-                  backdrop-blur-sm
-                  ${index === activeSuggestionIndex ? 'border-blue-400 dark:border-blue-500 bg-blue-50/90 dark:bg-blue-900/50 shadow-md' : ''}
-                `}
+            <MessageSquarePlus size={20} />
+          </button>
+          <button
+            className={`p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 ${hasUnsavedChanges ? 'text-blue-500' : ''}`}
+            onClick={handleSave}
+            title="⌘/Ctrl + S"
+          >
+            <Save size={20} />
+            {showSaveTooltip && (
+              <motion.span
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="absolute top-full mt-1 bg-black text-white px-2 py-1 rounded text-xs whitespace-nowrap"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs text-gray-400 dark:text-gray-500 font-mono w-5 text-right">
-                      {index + 1}
-                    </span>
-                    <span className="text-gray-700 dark:text-gray-300">
-                      <span className="opacity-50">{suggestions[index].startsWith(' ') ? '·' : ''}</span>
-                      {sugg}
-                    </span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs text-gray-400 dark:text-gray-500 font-mono px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700">
-                      {index === 0 ? 'tab' : index === 1 ? 'tab ×2' : 'tab ×3'}
-                    </span>
-                  </div>
-                </div>
-              </motion.button>
-            ))}
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-xs text-center text-gray-400 dark:text-gray-500 mt-1 pb-1"
-            >
-              <span className="px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-800/50">
-                ↑/↓ to navigate • Enter to select • Esc to dismiss
-              </span>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {content.trim().length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex items-center space-x-2 px-4 py-2 rounded-lg shadow-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+                Saved!
+              </motion.span>
+            )}
+          </button>
+          <button
+            className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+            onClick={handleGenerate}
+            disabled={isGenerating}
           >
-            <button
-              className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
-              onClick={() => {/* Implement comment feature */}}
-            >
-              <MessageSquarePlus size={20} />
-            </button>
-            <button
-              className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
-              onClick={handleGenerate}
-              disabled={isGenerating}
-            >
-              <Wand2 size={20} className={isGenerating ? 'animate-spin' : ''} />
-            </button>
-            <span className="px-3 text-gray-500 dark:text-gray-400">|</span>
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
-            >
-              {isGenerating ? 'Generating...' : 'Complete'}
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <Wand2 size={20} className={isGenerating ? 'animate-spin' : ''} />
+          </button>
+          <span className="px-3 text-gray-500 dark:text-gray-400">|</span>
+          <button
+            onClick={handleGenerate}
+            disabled={isGenerating}
+            className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+          >
+            {isGenerating ? 'Generating...' : 'Complete'}
+          </button>
+        </motion.div>
+      )}
     </div>
   );
 }

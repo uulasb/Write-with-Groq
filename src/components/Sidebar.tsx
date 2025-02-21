@@ -22,6 +22,7 @@ import {
 import { useEditorStore } from '../store';
 import { useModelStore } from '../store/modelStore';
 import { getInsights } from '../api/insights';
+import { getSuggestions } from '../api/suggestions';
 import { getTextStats } from '../utils/textStats';
 import { Message, sendChatMessage } from '../api/chat';
 import { fileSystem } from '../services/fileSystem';
@@ -47,7 +48,8 @@ export function Sidebar({ side, isOpen, onClose }: SidebarProps) {
     createFile, 
     deleteFile,
     currentFile, 
-    setCurrentFile 
+    setCurrentFile,
+    setContent 
   } = useEditorStore();
   const { selectedModel } = useModelStore();
   const [newFileName, setNewFileName] = useState('');
@@ -196,26 +198,35 @@ export function Sidebar({ side, isOpen, onClose }: SidebarProps) {
           <motion.div
             key="expanded"
             initial={{ width: 0 }}
-            animate={{ width: side === 'left' ? 320 : 384 }}
+            animate={{ width: side === 'left' ? 'min(320px, 80vw)' : 'min(384px, 90vw)' }}
             exit={{ width: 0 }}
             transition={{ duration: 0.2, ease: 'easeInOut' }}
             className="flex flex-col bg-gray-50 dark:bg-gray-800"
           >
-            {/* Rest of the left sidebar content remains unchanged */}
+            <div className="flex items-center p-3 border-b border-gray-200 dark:border-gray-700">
+              <button
+                onClick={onClose}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+              >
+                {side === 'left' ? (
+                  <PanelLeftClose size={18} className="text-gray-500" />
+                ) : (
+                  <PanelRightClose size={18} className="text-gray-500" />
+                )}
+              </button>
+              <div className="flex items-center space-x-2 ml-2">
+                {side === 'left' ? (
+                  <FileText size={18} className="text-gray-500" />
+                ) : (
+                  <Zap size={18} className="text-gray-500" />
+                )}
+                <span className="font-medium">
+                  {side === 'left' ? 'Documents' : 'AI Assistant'}
+                </span>
+              </div>
+            </div>
             {side === 'left' ? (
               <>
-                <div className="p-4 flex justify-between items-center border-b border-gray-200 dark:border-gray-700">
-                  <h2 className="font-semibold text-gray-900 dark:text-gray-100">
-                    Documents
-                  </h2>
-                  <button
-                    onClick={onClose}
-                    className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    <PanelLeftClose size={18} className="text-gray-700 dark:text-gray-300" />
-                  </button>
-                </div>
-
                 <motion.div 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -315,18 +326,6 @@ export function Sidebar({ side, isOpen, onClose }: SidebarProps) {
               </>
             ) : (
               <>
-                <div className="p-4 flex justify-between items-center border-b border-gray-200 dark:border-gray-700">
-                  <h2 className="font-semibold text-gray-900 dark:text-gray-100">
-                    AI Insights
-                  </h2>
-                  <button
-                    onClick={onClose}
-                    className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    <PanelRightClose size={18} className="text-gray-700 dark:text-gray-300" />
-                  </button>
-                </div>
-
                 <motion.div 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -467,6 +466,14 @@ export function Sidebar({ side, isOpen, onClose }: SidebarProps) {
                                     animate={{ x: 0, opacity: 1 }}
                                     transition={{ delay: i * 0.1 }}
                                     className="p-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer transition-colors"
+                                    onClick={async () => {
+                                      try {
+                                        const newSuggestions = await getSuggestions(suggestion, selectedModel);
+                                        setSuggestions(newSuggestions);
+                                      } catch (err) {
+                                        setError('Failed to get suggestions. Please try again.');
+                                      }
+                                    }}
                                   >
                                     <p className="text-gray-700 dark:text-gray-300">
                                       {suggestion}
